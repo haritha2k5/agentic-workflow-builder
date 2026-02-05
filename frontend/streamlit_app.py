@@ -9,9 +9,6 @@ import streamlit as st
 API_BASE_URL = "http://localhost:8000"
 
 
-# ---------------------------
-# SESSION STATE
-# ---------------------------
 def init_session_state():
     if "steps" not in st.session_state:
         st.session_state.steps = []
@@ -20,9 +17,7 @@ def init_session_state():
         st.session_state.execution_id = None
 
 
-# ---------------------------
-# STEP MANAGEMENT
-# ---------------------------
+
 def add_step():
     st.session_state.steps.append(
         {
@@ -38,9 +33,7 @@ def remove_step(index: int):
     st.session_state.steps.pop(index)
 
 
-# ---------------------------
-# API CALLS
-# ---------------------------
+
 def create_workflow(name: str, steps: list[dict[str, Any]]) -> dict | None:
     try:
         payload = {
@@ -57,7 +50,8 @@ def create_workflow(name: str, steps: list[dict[str, Any]]) -> dict | None:
             ],
         }
 
-        res = requests.post(f"{API_BASE_URL}/workflow", json=payload, timeout=15)
+        res = requests.post(f"{API_BASE_URL}/workflow",
+                            json=payload, timeout=15)
         res.raise_for_status()
         return res.json()
 
@@ -103,9 +97,7 @@ def get_executions():
         return None
 
 
-# ---------------------------
-# LIVE PROGRESS
-# ---------------------------
+
 def display_execution_progress(execution_id: int):
 
     progress_placeholder = st.empty()
@@ -133,7 +125,8 @@ def display_execution_progress(execution_id: int):
         )
 
         # Status Display
-        color = {"RUNNING": "🟡", "SUCCESS": "🟢", "FAILED": "🔴"}.get(status, "⚪")
+        color = {"RUNNING": "🟡", "SUCCESS": "🟢",
+                 "FAILED": "🔴"}.get(status, "⚪")
 
         status_placeholder.markdown(
             f"### {color} Execution Status: **{status}**"
@@ -186,9 +179,7 @@ def display_execution_progress(execution_id: int):
         time.sleep(2)
 
 
-# ---------------------------
-# MAIN UI
-# ---------------------------
+
 def main():
 
     st.set_page_config(page_title="Agentic Workflow Builder", layout="wide")
@@ -196,9 +187,7 @@ def main():
 
     init_session_state()
 
-    # =====================
-    # CREATE WORKFLOW
-    # =====================
+
     st.header("1️⃣ Create Workflow")
 
     workflow_name = st.text_input("Workflow Name")
@@ -255,9 +244,7 @@ def main():
 
     st.divider()
 
-    # =====================
-    # RUN WORKFLOW
-    # =====================
+
     st.header("2️⃣ Run Workflow")
 
     workflow_id = st.number_input("Workflow ID", min_value=1, step=1)
@@ -272,18 +259,14 @@ def main():
 
     st.divider()
 
-    # =====================
-    # LIVE PROGRESS
-    # =====================
+
     if st.session_state.execution_id:
         st.header("3️⃣ Execution Progress")
         display_execution_progress(st.session_state.execution_id)
 
     st.divider()
 
-    # =====================
-    # HISTORY
-    # =====================
+
     st.header("4️⃣ Execution History")
 
     if st.button("Refresh History"):
