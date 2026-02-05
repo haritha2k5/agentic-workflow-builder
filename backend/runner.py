@@ -1,7 +1,11 @@
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from llm_client import call_llm
-from models import Step, Workflow
+from models import Execution, ExecutionStepLog, Step, Workflow
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 @dataclass
@@ -29,7 +33,8 @@ def _run_single_step(step: Step, prompt_with_context: str) -> str:
     return call_llm(step.model, prompt_with_context)
 
 
-def _execute_step_with_retries(step: Step, prompt_with_context: str) -> str:
+def _execute_step_with_retries(step: Step, prompt_with_context: str) -> tuple[str, int]:
+    """Returns (output, retry_count). Raises on failure after retries exhausted."""
     last_error = None
     attempts = step.retry_limit + 1
 
@@ -37,7 +42,7 @@ def _execute_step_with_retries(step: Step, prompt_with_context: str) -> str:
         try:
             output = _run_single_step(step, prompt_with_context)
             if check_completion(output, step.completion_criteria):
-                return output
+                return output, attempt
             last_error = RuntimeError("Completion criteria not met")
         except Exception as e:
             last_error = e
@@ -46,22 +51,71 @@ def _execute_step_with_retries(step: Step, prompt_with_context: str) -> str:
     raise last_error  # unreachable if attempts > 0
 
 
-def run_workflow(workflow: Workflow) -> RunResult:
-    ordered_steps = sorted(workflow.steps, key=lambda s: s.step_order)
+def run_workflow(workflow: Workflow, session: "Session") -> tuple[int, RunResult]:
+    """
+    Execute workflow with execution tracking. Creates an Execution and
+    ExecutionStepLog records, updates them as steps run, and returns
+    execution_id and the final RunResult.
+    """
+    ordered_steps = sorted(
+        workflow.steps, key=lambda s: getattr(s, "step_order", s.id))
     step_outputs: list[str] = []
     context: str | None = None
 
-    for step in ordered_steps:
-        prompt_with_context = _build_prompt_with_context(step.prompt, context)
-        try:
-            output = _execute_step_with_retries(step, prompt_with_context)
-            step_outputs.append(output)
-            context = output
-        except Exception as e:
-            return RunResult(
+    execution = Execution(workflow_id=workflow.id, status="RUNNING")
+    session.add(execution)
+    session.flush()
+    execution_id = execution.id
+
+    try:
+        for step_order, step in enumerate(ordered_steps):
+            step_log = ExecutionStepLog(
+                execution_id=execution_id,
+                step_order=step_order,
+                status="RUNNING",
+            )
+            session.add(step_log)
+            session.flush()
+
+            prompt_with_context = _build_prompt_with_context(
+                step.prompt, context)
+            try:
+                output, retry_count = _execute_step_with_retries(
+                    step, prompt_with_context)
+                step_log.output = output
+                step_log.retry_count = retry_count
+                step_log.status = "COMPLETED"
+                step_outputs.append(output)
+                context = output
+            except Exception as e:
+                step_log.status = "FAILED"
+                step_log.retry_count = step.retry_limit
+                execution.status = "FAILED"
+                session.commit()
+                return (
+                    execution_id,
+                    RunResult(
+                        success=False,
+                        step_outputs=step_outputs,
+                        error_message=str(e),
+                    ),
+                )
+
+        execution.status = "SUCCESS"
+        session.commit()
+        return (
+            execution_id,
+            RunResult(success=True, step_outputs=step_outputs,
+                      error_message=None),
+        )
+    except Exception as e:
+        execution.status = "FAILED"
+        session.commit()
+        return (
+            execution_id,
+            RunResult(
                 success=False,
                 step_outputs=step_outputs,
                 error_message=str(e),
-            )
-
-    return RunResult(success=True, step_outputs=step_outputs, error_message=None)
+            ),
+        )
