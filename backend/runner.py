@@ -16,11 +16,16 @@ class RunResult:
     step_outputs: list[str]
     error_message: str | None = None
 
-
 def check_completion(output: str, criteria: str | None) -> bool:
+    print("CHECKING COMPLETION")
+    print("OUTPUT:", output)
+    print("CRITERIA:", criteria)
+
     if not criteria or not criteria.strip():
         return True
-    return criteria.strip() in output
+
+    return criteria.strip().lower() in output.lower()
+
 
 
 def _build_prompt_with_context(prompt: str, previous_output: str | None) -> str:
@@ -59,6 +64,9 @@ def run_workflow(workflow: Workflow, session: "Session") -> tuple[int, RunResult
     """
     ordered_steps = sorted(
         workflow.steps, key=lambda s: getattr(s, "step_order", s.id))
+    for s in ordered_steps:
+        print("STEP CRITERIA DEBUG:", s.completion_criteria)
+
     step_outputs: list[str] = []
     context: str | None = None
 
